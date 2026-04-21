@@ -1,6 +1,6 @@
 streamlit
 pandas
 requests
-weasyprint
+weasyprint>=60.0
 openpyxl
 pillow

@@ -7,7 +7,12 @@ from datetime import datetime
 import base64
 import os
 import tempfile
-from weasyprint import HTML, CSS
+
+try:
+    from weasyprint import HTML, CSS
+except ImportError:
+    st.error("WeasyPrint no está instalado. Por favor, ejecuta: pip install weasyprint")
+    st.stop()
 
 # logo — descarga desde URL y cachea en disco
 LOGO_URL  = "https://github.com/CCozd/BI_SIG_CAMPO/blob/main/logo.png?raw=true"
