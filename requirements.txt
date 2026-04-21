@@ -1,7 +1,6 @@
 streamlit
 pandas
 requests
-reportlab
+weasyprint
 openpyxl
 pillow
-pdf2image

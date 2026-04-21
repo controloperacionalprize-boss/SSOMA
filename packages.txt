@@ -1,1 +1,7 @@
-poppler-utils
+libglib2.0-0
+libpango-1.0-0
+libpangoft2-1.0-0
+libcairo2
+libjpeg-turbo-progs
+libffi7
+libffi-dev

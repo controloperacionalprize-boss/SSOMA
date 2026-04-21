@@ -1,53 +1,40 @@
-"""
-SSOMA - Registro de Inducción, Capacitación y Entrenamientos
-Versión con ReportLab (sin Playwright) — Compatible con Streamlit Cloud
-"""
-
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import requests
-import os
-import tempfile
-import base64
 from io import BytesIO
 from datetime import datetime
+import base64
+import os
+import tempfile
+from weasyprint import HTML, CSS
 
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import cm
-from reportlab.lib import colors
-from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
-    PageBreak, KeepTogether, Image
+# logo — descarga desde URL y cachea en disco
+LOGO_URL  = "https://github.com/CCozd/BI_SIG_CAMPO/blob/main/logo.png?raw=true"
+_LOGO_TMP = os.path.join(tempfile.gettempdir(), "ssoma_logo.png")
+
+def _get_logo_b64() -> str:
+    try:
+        if not os.path.exists(_LOGO_TMP):
+            r = requests.get(LOGO_URL, timeout=15)
+            r.raise_for_status()
+            with open(_LOGO_TMP, "wb") as f:
+                f.write(r.content)
+        with open(_LOGO_TMP, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception:
+        return ""
+
+_LOGO_B64 = _get_logo_b64()
+LOGO_HTML = (
+    f'<img src="data:image/png;base64,{_LOGO_B64}" style="max-width:85px;max-height:60px;object-fit:contain;">'
+    if _LOGO_B64 else ""
 )
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
 
-# ══════════════════════════════════════════════════════════════════════════════
-# CONFIGURACIÓN
-# ══════════════════════════════════════════════════════════════════════════════
-
-LOGO_URL = "https://github.com/CCozd/BI_SIG_CAMPO/blob/main/logo.png?raw=true"
 SHAREPOINT_URL = (
     "https://aquanqape-my.sharepoint.com/:x:/g/personal/soporteti_aquanqa_pe/"
     "IQAKudFYiQ-bTIzlTJeXm5HbAVAc35k94KZWvES9s6BvOWc?download=1"
 )
-
-LOGO_TMP = os.path.join(tempfile.gettempdir(), "ssoma_logo.png")
-
-# Colores corporativos
-C_NAVY = colors.HexColor("#0D2340")
-C_BLUE_LITE = colors.HexColor("#E8EDF4")
-C_GRAY_D = colors.HexColor("#334155")
-C_GRAY_M = colors.HexColor("#64748B")
-C_GRAY_L = colors.HexColor("#CBD5E1")
-C_GRAY_BG = colors.HexColor("#F8FAFC")
-C_WHITE = colors.white
-
-# Página
-PW, PH = A4
-ML, MR = 1.8*cm, 1.8*cm
-MT, MB = 2.5*cm, 2.0*cm
-CW = PW - ML - MR
 
 st.set_page_config(page_title="SSOMA - Registro de Inducción", layout="wide")
 st.markdown(
@@ -55,108 +42,66 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ══════════════════════════════════════════════════════════════════════════════
-# HELPERS
-# ══════════════════════════════════════════════════════════════════════════════
-
-def get_logo_b64() -> str:
-    """Descarga logo desde GitHub y lo convierte a base64."""
-    try:
-        if not os.path.exists(LOGO_TMP):
-            r = requests.get(LOGO_URL, timeout=15)
-            r.raise_for_status()
-            with open(LOGO_TMP, "wb") as f:
-                f.write(r.content)
-        with open(LOGO_TMP, "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except Exception:
-        return ""
-
-def descargar_imagen_temp(url: str) -> str | None:
-    """Descarga imagen desde URL y la guarda temporalmente."""
-    try:
-        r = requests.get(str(url).strip(), timeout=15)
-        r.raise_for_status()
-        ext = ".png" if "png" in r.headers.get("Content-Type", "") else ".jpg"
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-        tmp.write(r.content)
-        tmp.close()
-        return tmp.name
-    except Exception:
-        return None
-
-def safe(v) -> str:
-    """Sanitiza valor."""
-    return "" if pd.isna(v) else str(v).strip()
-
-def fmt_fecha(v) -> str:
-    """Formatea fecha a dd/mm/yyyy."""
-    try:
-        return pd.to_datetime(v).strftime("%d/%m/%Y")
-    except Exception:
-        return str(v)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CARGAR DATOS
-# ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=300)
-def cargar_excel(url: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Carga hojas de Excel desde SharePoint."""
+def cargar_excel(url: str) -> bytes:
     headers = {"User-Agent": "Mozilla/5.0"}
     r = requests.get(url, headers=headers, timeout=30)
     r.raise_for_status()
-    
-    df_cap = pd.read_excel(BytesIO(r.content), sheet_name="Capacitaciones", dtype=str)
-    df_cap.columns = df_cap.columns.str.strip()
-    
-    df_par = pd.read_excel(BytesIO(r.content), sheet_name="Participantes", dtype=str)
-    df_par.columns = df_par.columns.str.strip()
-    
-    return df_cap, df_par
+    return r.content
+
 
 with st.spinner("Cargando datos..."):
     try:
-        df_cap, df_par = cargar_excel(SHAREPOINT_URL)
+        contenido = cargar_excel(SHAREPOINT_URL)
+        df_cap = pd.read_excel(BytesIO(contenido), sheet_name="Capacitaciones", dtype=str)
+        df_cap.columns = df_cap.columns.str.strip()
+        df_par = pd.read_excel(BytesIO(contenido), sheet_name="Participantes", dtype=str)
+        df_par.columns = df_par.columns.str.strip()
     except Exception as e:
-        st.error(f"Error al cargar Excel: {e}")
+        st.error(f"Error al cargar el archivo: {e}")
         st.stop()
 
-# Procesar fechas
-df_cap["_FECHA_DT"] = pd.to_datetime(df_cap["FECHA"], errors="coerce")
+# fecha sin ISO
+df_cap["_FECHA_DT"]    = pd.to_datetime(df_cap["FECHA"], errors="coerce")
 df_cap["_FECHA_LABEL"] = df_cap["_FECHA_DT"].dt.strftime("%d/%m/%Y").fillna(df_cap["FECHA"].fillna(""))
 
-# ══════════════════════════════════════════════════════════════════════════════
-# FILTROS EN CASCADA
-# ══════════════════════════════════════════════════════════════════════════════
-
-st.markdown("### 📋 Selecciona un Registro")
-
+# ── Filtros ───────────────────────────────────────────────────────────────────
+fechas_disponibles = (
+    df_cap["_FECHA_LABEL"].replace("", pd.NA).dropna()
+    .sort_values().unique().tolist()
+)
 col1, col2, col3 = st.columns(3)
+with col1:
+    fecha_sel = st.selectbox("Fecha", fechas_disponibles)
 
-# Fecha
-fechas_unicas = df_cap["_FECHA_LABEL"].replace("", pd.NA).dropna().sort_values().unique().tolist()
-fecha_sel = col1.selectbox("📅 Fecha", fechas_unicas)
-df_by_fecha = df_cap[df_cap["_FECHA_LABEL"] == fecha_sel].copy()
+df_por_fecha = df_cap[df_cap["_FECHA_LABEL"] == fecha_sel].copy()
 
-# Tema
-temas_unicas = df_by_fecha["TEMA"].dropna().map(str.strip).replace("", pd.NA).dropna().unique().tolist()
-tema_sel = col2.selectbox("📚 Tema", temas_unicas)
-df_by_tema = df_by_fecha[df_by_fecha["TEMA"].str.strip() == tema_sel].copy()
+temas_disponibles = (
+    df_por_fecha["TEMA"].dropna().map(str.strip)
+    .replace("", pd.NA).dropna().unique().tolist()
+)
+with col2:
+    tema_sel = st.selectbox("Tema", temas_disponibles)
 
-# Expositor
-expositores_unicas = df_by_tema["EXPOSITOR"].dropna().map(str.strip).replace("", pd.NA).dropna().unique().tolist()
-expositor_sel = col3.selectbox("👤 Expositor", expositores_unicas)
-df_filtrado = df_by_tema[df_by_tema["EXPOSITOR"].str.strip() == expositor_sel].copy()
+df_por_tema = df_por_fecha[df_por_fecha["TEMA"].str.strip() == tema_sel].copy()
+
+capacitadores_disponibles = (
+    df_por_tema["EXPOSITOR"].dropna().map(str.strip)
+    .replace("", pd.NA).dropna().unique().tolist()
+)
+with col3:
+    capacitador_sel = st.selectbox("Capacitador", capacitadores_disponibles)
+
+df_filtrado = df_por_tema[df_por_tema["EXPOSITOR"].str.strip() == capacitador_sel].copy()
 
 if df_filtrado.empty:
-    st.warning("No hay registros para esa combinación.")
+    st.warning("No hay registros para esa combinación de filtros.")
     st.stop()
 
-row = df_filtrado.iloc[0]
+row    = df_filtrado.iloc[0]
 id_sel = row["ID_CAPACITACION"]
 
-# ── Extraer datos ─────────────────────────────────────────────────────────────
 
 def g(col: str) -> str:
     try:
@@ -165,6 +110,28 @@ def g(col: str) -> str:
     except Exception:
         return ""
 
+
+empresa     = g("EMPRESA").upper()
+sede        = g("FUNDO")
+ubicacion   = g("UBICACIÓN")
+semana      = g("SEMANA")
+duracion    = g("DURACIÓN")
+procedencia = g("PROCEDENCIA").upper()
+tipo        = g("TIPO").upper()
+tipo_otro   = g("TIPO_OTRO(OPCIONAL)")
+tema        = g("TEMA")
+tema_otro   = g("TEMA_OTRO(OPCIONAL)")
+objetivo    = g("OBJETIVO")
+_fecha_raw  = g("FECHA")
+try:
+    fecha = pd.to_datetime(_fecha_raw).strftime("%d/%m/%Y")
+except Exception:
+    fecha = _fecha_raw
+observ      = g("OBSERVACIONES")
+expositor   = g("EXPOSITOR")
+responsable = g("RESPONSABLE")
+
+
 def g_url(col: str) -> str:
     try:
         v = row.get(col, "")
@@ -172,230 +139,333 @@ def g_url(col: str) -> str:
     except Exception:
         return ""
 
-empresa = g("EMPRESA")
-sede = g("FUNDO")
-ubicacion = g("UBICACIÓN")
-semana = g("SEMANA")
-duracion = g("DURACIÓN")
-procedencia = g("PROCEDENCIA")
-tipo = g("TIPO")
-tipo_otro = g("TIPO_OTRO(OPCIONAL)")
-tema = g("TEMA")
-tema_otro = g("TEMA_OTRO(OPCIONAL)")
-objetivo = g("OBJETIVO")
-fecha_raw = g("FECHA")
-try:
-    fecha = pd.to_datetime(fecha_raw).strftime("%d/%m/%Y")
-except Exception:
-    fecha = fecha_raw
-observ = g("OBSERVACIONES")
-expositor = g("EXPOSITOR")
-responsable = g("RESPONSABLE")
 
-firma_exp_url = g_url("FIRMA_EXPOSITOR_URL")
+firma_exp_url  = g_url("FIRMA_EXPOSITOR_URL")
 firma_resp_url = g_url("FIRMA_RESPONSABLE_URL")
 
-tema_display = tema_otro if tema == "OTRO" and tema_otro else tema
+tema_display = tema_otro if tema.upper() == "OTRO" and tema_otro else tema
 
-# Participantes
 part_filtrados = df_par[df_par["ID_CAPACITACION"] == id_sel].reset_index(drop=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# GENERAR PDF CON REPORTLAB
-# ══════════════════════════════════════════════════════════════════════════════
 
-def generar_pdf_reportlab(row, participantes_df) -> BytesIO:
-    """Genera PDF usando ReportLab."""
-    buf = BytesIO()
-    tmp_files = []
-    
-    doc = SimpleDocTemplate(
-        buf, pagesize=A4,
-        leftMargin=ML, rightMargin=MR,
-        topMargin=MT, bottomMargin=MB
-    )
-    elements = []
-    
-    # Estilos
-    S_TITULO = ParagraphStyle(
-        "titulo", fontSize=12, fontName="Helvetica-Bold",
-        textColor=C_NAVY, alignment=TA_CENTER, spaceAfter=6
-    )
-    S_SUBTITULO = ParagraphStyle(
-        "subtit", fontSize=9, textColor=C_GRAY_M,
-        alignment=TA_CENTER, spaceAfter=10
-    )
-    S_LABEL = ParagraphStyle(
-        "lbl", fontSize=9, fontName="Helvetica-Bold",
-        textColor=C_NAVY, leading=12
-    )
-    S_VAL = ParagraphStyle(
-        "val", fontSize=9, leading=12, textColor=C_GRAY_D
-    )
-    S_CELL_HDR = ParagraphStyle(
-        "chdr", fontSize=8, fontName="Helvetica-Bold",
-        textColor=C_WHITE, alignment=TA_CENTER, leading=10
-    )
-    S_CELL = ParagraphStyle(
-        "ccell", fontSize=8, alignment=TA_CENTER,
-        leading=11, textColor=C_GRAY_D
-    )
-    
-    # ── TÍTULO ────────────────────────────────────────────────────────────────
-    elements.append(Paragraph(
-        "REGISTRO DE INDUCCIÓN, CAPACITACIÓN,<br/>ENTRENAMIENTO Y SIMULACROS DE EMERGENCIA",
-        S_TITULO
-    ))
-    elements.append(Paragraph("Sistema de Gestión de Seguridad y Salud Ocupacional", S_SUBTITULO))
-    elements.append(Spacer(1, 0.3*cm))
-    
-    # ── DATOS HEADER ──────────────────────────────────────────────────────────
-    header_data = [
-        [Paragraph("Empresa:", S_LABEL), Paragraph(empresa, S_VAL)],
-        [Paragraph("Sede:", S_LABEL), Paragraph(sede, S_VAL)],
-        [Paragraph("Ubicación:", S_LABEL), Paragraph(ubicacion, S_VAL)],
-        [Paragraph("Semana:", S_LABEL), Paragraph(semana, S_VAL)],
-        [Paragraph("Duración:", S_LABEL), Paragraph(duracion, S_VAL)],
-        [Paragraph("Tema:", S_LABEL), Paragraph(tema_display, S_VAL)],
-        [Paragraph("Objetivo:", S_LABEL), Paragraph(objetivo, S_VAL)],
-        [Paragraph("Fecha:", S_LABEL), Paragraph(fecha, S_VAL)],
-    ]
-    
-    t_header = Table(header_data, colWidths=[2.5*cm, CW-2.5*cm])
-    t_header.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LINEBELOW", (0, -1), (-1, -1), 0.6, C_GRAY_L),
-    ]))
-    elements.append(t_header)
-    elements.append(Spacer(1, 0.3*cm))
-    
-    # ── TABLA DE PARTICIPANTES ────────────────────────────────────────────────
-    elements.append(Paragraph("Participantes:", ParagraphStyle(
-        "ptit", fontSize=10, fontName="Helvetica-Bold", textColor=C_NAVY
-    )))
-    elements.append(Spacer(1, 0.15*cm))
-    
-    # Headers
-    table_data = [[
-        Paragraph("N°", S_CELL_HDR),
-        Paragraph("Apellidos y Nombres", S_CELL_HDR),
-        Paragraph("DNI", S_CELL_HDR),
-        Paragraph("Puesto", S_CELL_HDR),
-        Paragraph("Área", S_CELL_HDR),
-        Paragraph("Firma", S_CELL_HDR),
-        Paragraph("Fecha", S_CELL_HDR),
-    ]]
-    
-    # Filas
-    for idx, par in participantes_df.iterrows():
-        nombre = safe(par.get("APELLIDOS_NOMBRES", "")).upper()
-        dni = safe(par.get("DNI", "")).upper()
-        puesto = safe(par.get("PUESTO", "")).upper()
-        area = safe(par.get("AREA", "")).upper()
-        firma_url = safe(par.get("FIRMA_URL", "")).lower()
-        
-        # Descargar firma si existe
-        firma_cell = ""
-        if firma_url and (firma_url.startswith("http://") or firma_url.startswith("https://")):
-            img_path = descargar_imagen_temp(firma_url)
-            if img_path:
-                tmp_files.append(img_path)
-                try:
-                    firma_img = Image(img_path, width=1.2*cm, height=0.6*cm)
-                    firma_cell = firma_img
-                except Exception:
-                    firma_cell = ""
-        
-        table_data.append([
-            Paragraph(str(idx + 1), S_CELL),
-            Paragraph(nombre, S_CELL),
-            Paragraph(dni, S_CELL),
-            Paragraph(puesto, S_CELL),
-            Paragraph(area, S_CELL),
-            firma_cell if firma_cell else "",
-            Paragraph(fecha, S_CELL),
-        ])
-    
-    t_part = Table(table_data, colWidths=[0.6*cm, 3.2*cm, 1.5*cm, 2.2*cm, 2.2*cm, 1.5*cm, 1.2*cm])
-    t_part.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), C_NAVY),
-        ("BACKGROUND", (0, 1), (-1, -1), C_BLUE_LITE),
-        ("BOX", (0, 0), (-1, -1), 0.8, C_NAVY),
-        ("INNERGRID", (0, 0), (-1, -1), 0.4, C_GRAY_L),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-    ]))
-    elements.append(t_part)
-    elements.append(Spacer(1, 0.3*cm))
-    
-    # ── FIRMAS ────────────────────────────────────────────────────────────────
-    elements.append(PageBreak())
-    elements.append(Paragraph("Firmas Autorizadas", ParagraphStyle(
-        "ftit", fontSize=10, fontName="Helvetica-Bold", textColor=C_NAVY
-    )))
-    elements.append(Spacer(1, 0.3*cm))
-    
-    firmas_data = [
-        [
-            Paragraph("<b>Expositor:</b>", S_LABEL),
-            Paragraph(expositor, S_VAL),
-        ],
-        [
-            Paragraph("<b>Responsable del Registro:</b>", S_LABEL),
-            Paragraph(responsable, S_VAL),
-        ],
-    ]
-    
-    t_firmas = Table(firmas_data, colWidths=[3*cm, CW-3*cm])
-    t_firmas.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-    ]))
-    elements.append(t_firmas)
-    
-    # Build
-    doc.build(elements)
-    buf.seek(0)
-    
-    # Limpiar archivos temporales
-    for f in tmp_files:
-        try:
-            os.unlink(f)
-        except Exception:
-            pass
-    
-    return buf
+def gp(df_row, col: str) -> str:
+    try:
+        v = df_row.get(col, "")
+        return "" if pd.isna(v) or str(v).strip() in ("nan", "NaT", "None") else str(v).strip().upper()
+    except Exception:
+        return ""
 
-# ══════════════════════════════════════════════════════════════════════════════
-# UI
-# ══════════════════════════════════════════════════════════════════════════════
 
+# Portrait: 15 filas por página para que quepan bien en A4 vertical
+ROWS_PER_PAGE = 10
+
+total_part = len(part_filtrados)
+chunks = [
+    part_filtrados.iloc[i:i + ROWS_PER_PAGE]
+    for i in range(0, max(total_part, 1), ROWS_PER_PAGE)
+]
+
+
+def build_rows(chunk, offset: int) -> str:
+    rows = ""
+    for i in range(ROWS_PER_PAGE):
+        n  = offset + i + 1
+        bg = "#D6E0F0" if i % 2 == 0 else "#ffffff"
+        if i < len(chunk):
+            p         = chunk.iloc[i]
+            nombre    = gp(p, "APELLIDOS_NOMBRES")
+            dni       = gp(p, "DNI")
+            puesto    = gp(p, "PUESTO")
+            area      = gp(p, "AREA")
+            firma_url = gp(p, "FIRMA_URL").lower()
+            p_fecha   = fecha
+        else:
+            nombre = dni = puesto = area = firma_url = p_fecha = ""
+        firma_img = (
+            f'<img src="{firma_url}" style="max-height:36px;max-width:100%;display:block;margin:auto;">'
+            if firma_url else ""
+        )
+        rows += f"""
+      <tr style="background:{bg}; height:40px;">
+        <td style="text-align:center;color:#555;width:28px;">{n}</td>
+        <td colspan="2">{nombre}</td>
+        <td style="text-align:center;width:75px;">{dni}</td>
+        <td colspan="2">{puesto}</td>
+        <td colspan="2">{area}</td>
+        <td style="text-align:center;padding:2px;">{firma_img}</td>
+        <td style="text-align:center;width:70px;">{p_fecha}</td>
+      </tr>"""
+    return rows
+
+
+def cb(marcado: bool = False) -> str:
+    if marcado:
+        return '<span style="display:inline-block;width:12px;height:12px;border:1px solid #0D2340;background:#0D2340;margin-right:3px;vertical-align:middle;text-align:center;color:white;font-size:10px;line-height:12px;">✓</span>'
+    return '<span style="display:inline-block;width:12px;height:12px;border:1px solid #444;margin-right:3px;vertical-align:middle;"></span>'
+
+
+emp1_bg = "#fff9c4" if "AQU ANQA II" not in empresa and "AQU ANQA" in empresa else "white"
+emp2_bg = "#fff9c4" if "AQU ANQA II" in empresa else "white"
+
+
+def header_table() -> str:
+    return f"""
+  <tr>
+    <td rowspan="2" style="width:95px;text-align:center;padding:4px;background:white;border:1px solid #777;">{LOGO_HTML}</td>
+    <td colspan="7" class="gh" style="font-size:14px;padding:10px;">
+      REGISTRO DE INDUCCIÓN, CAPACITACIÓN,<br>ENTRENAMIENTO Y SIMULACROS DE EMERGENCIA
+    </td>
+    <td colspan="2" style="background:#D6E0F0;font-size:11px;padding:5px;vertical-align:top;">
+      <b>Código:</b> PAQ-DO-FT-001<br><b>Versión:</b> 03 &nbsp;|&nbsp; Set - 2025<br><b>Rev:</b> 02
+    </td>
+  </tr>
+  <tr>
+    <td class="lb" style="width:80px;">Elaborado por:</td>
+    <td colspan="2">Desarrollo Organizacional</td>
+    <td class="lb">Revisado por:</td>
+    <td>SIG &amp; Certificaciones</td>
+    <td class="lb">Aprobado por:</td>
+    <td colspan="3" style="font-size:11px;">Jefatura de Gestión de Talento Humano</td>
+  </tr>
+  <tr>
+    <td class="lh">MARCA</td><td class="lh" colspan="2">RAZÓN SOCIAL</td>
+    <td class="lh">RUC</td><td class="lh" colspan="2">DOMICILIO</td>
+    <td class="lh" colspan="2">ACTIVIDAD ECONÓMICA</td>
+    <td class="lh">N° TRAB.</td><td class="lh"></td>
+  </tr>
+  <tr style="background:{emp1_bg}">
+    <td style="text-align:center;font-size:10px;line-height:1.2;">AQUA<br>NOA</td>
+    <td colspan="2">AQU ANQA S.A.C.</td><td>20608345770</td>
+    <td colspan="2" style="font-size:10px;">Car. Panamericana Km. 625 Sec. Las Dos Rayas - La Arenita - La Libertad - Ascope - Razuri</td>
+    <td colspan="2" style="font-size:10px;">0122 - Cultivo de frutas tropicales y subtropicales</td>
+    <td></td><td></td>
+  </tr>
+  <tr style="background:{emp2_bg}">
+    <td style="text-align:center;font-size:10px;line-height:1.2;">AQUA<br>NOA II</td>
+    <td colspan="2">AQU ANQA II S.A.C.</td><td>20610068767</td>
+    <td colspan="2" style="font-size:10px;">Car. Panamericana Km. 639 Sec C.P. Men - La Arenita - La Libertad - Ascope - Paijan</td>
+    <td colspan="2" style="font-size:10px;">0122 - Cultivo de frutas tropicales y subtropicales</td>
+    <td></td><td></td>
+  </tr>
+  <tr>
+    <td class="lb">SEDE</td><td colspan="2">{sede}</td>
+    <td class="lb">UBICACIÓN</td><td colspan="2">{ubicacion}</td>
+    <td class="lb" colspan="2">SEMANA (S) &nbsp; {semana}</td>
+    <td class="lb" colspan="2">DURACIÓN &nbsp; {duracion}</td>
+  </tr>
+  <tr>
+    <td class="lb">PROCEDENCIA</td>
+    <td colspan="2">{cb(procedencia=="INTERNA")} Interna &nbsp;&nbsp; {cb(procedencia=="EXTERNA")} Externa</td>
+    <td class="lb" colspan="2">TIPO:</td>
+    <td>{cb("INDUCC" in tipo)} Inducción</td>
+    <td>{cb("CAPACIT" in tipo)} Capacitación</td>
+    <td colspan="2">{cb("ENTREN" in tipo)} Entrenamiento</td>
+    <td>{cb("SIMUL" in tipo)} Simulacro</td>
+  </tr>
+  <tr>
+    <td colspan="4" style="border-top:none;"></td><td></td>
+    <td>{cb("CHARLA" in tipo)} Charla 5 min</td>
+    <td>{cb("CURSO" in tipo)} Curso</td>
+    <td colspan="2">{cb("TALLER" in tipo)} Taller</td>
+    <td>{cb("OTRO" in tipo)} Otro: {tipo_otro}</td>
+  </tr>
+  <tr><td class="lb">TEMA(S):</td><td colspan="9" style="height:24px;">{tema_display}</td></tr>
+  <tr><td class="lb">OBJETIVO(S):</td><td colspan="9" style="height:24px;">{objetivo}</td></tr>
+  <tr>
+    <td class="lh" style="text-align:center;">N°</td>
+    <td class="lh" colspan="2">APELLIDOS Y NOMBRES</td>
+    <td class="lh" style="text-align:center;">DNI</td>
+    <td class="lh" colspan="2">PUESTO</td>
+    <td class="lh" colspan="2">ÁREA</td>
+    <td class="lh">FIRMA</td>
+    <td class="lh" style="text-align:center;">FECHA</td>
+  </tr>"""
+
+
+def footer_table() -> str:
+    return f"""
+  <tr><td class="lb">OBSERVACIONES:</td><td colspan="9" style="height:28px;">{observ}</td></tr>
+  <tr><td colspan="10" class="nb" style="height:8px;"></td></tr>
+  <tr>
+    <td class="lh" colspan="4">EXPOSITOR 1:</td>
+    <td class="lh" colspan="3">EXPOSITOR 2:</td>
+    <td class="lh" colspan="3">EXPOSITOR 3:</td>
+  </tr>
+  <tr>
+    <td class="lb">CARGO:</td><td></td><td class="lb">EMPRESA:</td><td>{empresa}</td>
+    <td class="lb">CARGO:</td><td class="lb">EMPRESA:</td><td></td>
+    <td class="lb">CARGO:</td><td class="lb">EMPRESA:</td><td></td>
+  </tr>
+  <tr>
+    <td class="lb">NOMBRE:</td><td colspan="3">{expositor}</td>
+    <td class="lb">NOMBRE:</td><td colspan="2"></td>
+    <td class="lb">NOMBRE:</td><td colspan="2"></td>
+  </tr>
+  <tr style="height:50px;">
+    <td class="lb">FIRMA:</td>
+    <td colspan="3" style="text-align:center;padding:2px;">{"<img src='" + firma_exp_url + "' style='max-height:44px;max-width:100%;display:block;margin:auto;'>" if firma_exp_url else ""}</td>
+    <td class="lb">FIRMA:</td><td colspan="2"></td>
+    <td class="lb">FIRMA:</td><td colspan="2"></td>
+  </tr>
+  <tr><td colspan="10" class="nb" style="height:8px;"></td></tr>
+  <tr><td class="lh" colspan="10">RESPONSABLE DEL REGISTRO</td></tr>
+  <tr>
+    <td class="lh" colspan="4">APELLIDOS Y NOMBRES</td>
+    <td class="lh" colspan="3">CARGO</td>
+    <td class="lh" colspan="2">FIRMA</td>
+    <td class="lh">FECHA</td>
+  </tr>
+  <tr style="height:50px;">
+    <td colspan="4">{responsable}</td><td colspan="3"></td>
+    <td colspan="2" style="text-align:center;padding:2px;">{"<img src='" + firma_resp_url + "' style='max-height:44px;max-width:100%;display:block;margin:auto;'>" if firma_resp_url else ""}</td>
+    <td>{fecha}</td>
+  </tr>"""
+
+
+gen_fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+
+def build_pages_html() -> str:
+    pages = ""
+    for idx, chunk in enumerate(chunks):
+        is_first = idx == 0
+        is_last  = idx == len(chunks) - 1
+        page_break = "" if is_last else 'style="page-break-after:always;"'
+
+        if is_first:
+            # Primera página: header completo + filas
+            pages += f"""
+<div class="page-wrap" {page_break}>
+  <table class="ssf">
+    {header_table()}
+    {build_rows(chunk, idx * ROWS_PER_PAGE)}
+    {footer_table() if is_last else ""}
+  </table>
+</div>"""
+        else:
+            # Páginas siguientes: solo filas (sin header)
+            pages += f"""
+<div class="page-wrap" {page_break}>
+  <table class="ssf">
+    {build_rows(chunk, idx * ROWS_PER_PAGE)}
+    {footer_table() if is_last else ""}
+  </table>
+</div>"""
+    return pages
+
+
+# ── Footer ─────────────────────────────────────────────────────────────────────
+FOOTER_HTML = f"""
+<div style="width:100%;font-family:Arial,sans-serif;font-size:7pt;padding:0 8mm;box-sizing:border-box;">
+  <div style="border-top:1.5px solid #0D2340;border-bottom:0.5px solid #334155;
+              display:flex;justify-content:space-between;align-items:center;
+              padding:2px 0;white-space:nowrap;">
+    <span style="color:#64748B;font-size:6.5pt;flex:1;overflow:hidden;text-overflow:ellipsis;">
+      Documento de uso interno — Prohibida su reproducción sin autorización
+    </span>
+    <span style="color:#0D2340;font-weight:bold;font-size:8pt;flex-shrink:0;padding:0 8px;">
+      — <span class="pageNumber"></span> —
+    </span>
+    <span style="color:#64748B;font-size:6.5pt;flex:1;text-align:right;">
+      Generado: {gen_fecha}
+    </span>
+  </div>
+</div>"""
+
+# ── CSS Portrait — font pequeño + table-layout:fixed para no desbordar ────────
+CSS_PORTRAIT = """
+  @page {
+    size: A4 portrait;
+    margin: 8mm 5mm 16mm 5mm;
+  }
+  body { margin:0; padding:4px; font-family:Arial,sans-serif; background:#F8FAFC; }
+  .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12); padding:2px; margin-bottom:16px; }
+  .ssf { width:100%; border-collapse:collapse; font-size:7px; color:#111; table-layout:fixed; }
+  .ssf td { border:1px solid #777; padding:1px 2px; vertical-align:middle;
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.3; }
+  .gh { background:#0D2340; color:white; font-weight:bold; text-align:center;
+        font-size:7.5px; padding:3px; white-space:normal; word-break:break-word; }
+  .lh { background:#0D2340; color:white; font-weight:bold; text-align:center;
+        padding:2px; white-space:normal; word-break:break-word; }
+  .lb { background:#D6E0F0; font-weight:bold; white-space:normal; }
+  .nb { border:none !important; }
+  img { max-width:100% !important; }
+"""
+
+# CSS vista previa en pantalla (se ve mejor con más espacio)
+CSS_PREVIEW = """
+  body { margin:0; padding:12px; font-family:Arial,sans-serif; background:#F8FAFC; }
+  .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12); padding:8px; margin-bottom:28px; }
+  .ssf { width:100%; border-collapse:collapse; font-size:12px; color:#111; }
+  .ssf td { border:1px solid #777; padding:3px 6px; vertical-align:middle; }
+  .gh { background:#0D2340; color:white; font-weight:bold; text-align:center; padding:6px; }
+  .lh { background:#0D2340; color:white; font-weight:bold; text-align:center; padding:4px; }
+  .lb { background:#D6E0F0; font-weight:bold; }
+  .nb { border:none !important; }
+"""
+
+
+def build_html_pdf() -> str:
+    pages_html = build_pages_html()
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+{CSS_PORTRAIT}
+</style>
+</head><body>
+{pages_html}
+</body></html>
+"""
+
+
+def build_html_preview() -> str:
+    pages_html = build_pages_html()
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>{CSS_PREVIEW}</style>
+</head><body>
+{pages_html}
+</body></html>
+"""
+
+
+# ── Generar PDF con WeasyPrint (mejor que Playwright para Streamlit Cloud) ────
+def generar_pdf(html_str: str) -> bytes:
+    """Genera PDF desde HTML usando WeasyPrint."""
+    try:
+        pdf_bytes = HTML(string=html_str).write_pdf()
+        return pdf_bytes
+    except Exception as e:
+        st.error(f"Error generando PDF: {e}")
+        return None
+
+
+# ── Invalidar PDF si cambian los filtros ──────────────────────────────────────
+if st.session_state.get("pdf_id") and st.session_state.get("pdf_id") != id_sel:
+    st.session_state.pop("pdf_bytes", None)
+    st.session_state.pop("pdf_listo", None)
+    st.session_state.pop("pdf_id", None)
+
+# ── UI: botones ───────────────────────────────────────────────────────────────
 st.divider()
 col_b1, col_b2 = st.columns(2)
 
 with col_b1:
     if st.button("🔍 Generar Vista Previa", use_container_width=True, type="secondary"):
-        with st.spinner("Generando PDF..."):
-            pdf_buf = generar_pdf_reportlab(row, part_filtrados)
-            pdf_bytes = pdf_buf.read()
-        st.session_state["pdf_bytes"] = pdf_bytes
-        st.session_state["pdf_listo"] = True
-        st.session_state["pdf_id"] = id_sel
-        st.rerun()
+        with st.spinner("Generando informe..."):
+            pdf_bytes = generar_pdf(build_html_pdf())
+        if pdf_bytes:
+            st.session_state["pdf_bytes"] = pdf_bytes
+            st.session_state["pdf_listo"] = True
+            st.session_state["pdf_id"]    = id_sel
+            st.rerun()
 
 with col_b2:
     if st.session_state.get("pdf_listo"):
-        nombre_archivo = f"registro_{id_sel}_{fmt_fecha(fecha)}.pdf"
         st.download_button(
             label="⬇ Descargar PDF",
             data=st.session_state["pdf_bytes"],
-            file_name=nombre_archivo,
+            file_name=f"registro_{st.session_state.get('pdf_id', id_sel)}.pdf",
             mime="application/pdf",
             use_container_width=True,
             type="primary",
@@ -403,26 +473,9 @@ with col_b2:
     else:
         st.button("⬇ Descargar PDF", disabled=True, use_container_width=True)
 
-# Vista previa
 if st.session_state.get("pdf_listo"):
-    st.success("✅ PDF generado correctamente.")
+    st.success("✅ Registro generado. Revisa la vista previa antes de descargar.")
     st.markdown("---")
     st.markdown("### 🔍 Vista Previa")
-    
-    pdf_bytes = st.session_state["pdf_bytes"]
-    
-    # Intentar mostrar con pdf2image
-    try:
-        from pdf2image import convert_from_bytes
-        paginas = convert_from_bytes(pdf_bytes, dpi=150)
-        for i, img in enumerate(paginas, 1):
-            st.image(img, use_container_width=True, caption=f"Página {i}")
-    except Exception:
-        # Fallback: iframe con base64
-        import base64
-        b64 = base64.b64encode(pdf_bytes).decode()
-        st.markdown(
-            f'<iframe src="data:application/pdf;base64,{b64}" '
-            f'width="100%" height="900px" style="border:1px solid #ccc;"></iframe>',
-            unsafe_allow_html=True,
-        )
+    altura = 1600 + (len(chunks) - 1) * 1400
+    components.html(build_html_preview(), height=altura, scrolling=True)
