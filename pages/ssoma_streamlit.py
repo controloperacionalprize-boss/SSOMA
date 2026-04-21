@@ -155,6 +155,7 @@ def gp(df_row, col: str) -> str:
         return ""
 
 
+# Portrait: 10 filas por página para que quepan bien en A4 vertical
 ROWS_PER_PAGE = 10
 
 total_part = len(part_filtrados)
@@ -329,6 +330,7 @@ def build_pages_html() -> str:
         is_first = idx == 0
         is_last  = idx == len(chunks) - 1
         page_break = "" if is_last else 'style="page-break-after:always;"'
+
         if is_first:
             pages += f"""
 <div class="page-wrap" {page_break}>
@@ -349,6 +351,23 @@ def build_pages_html() -> str:
     return pages
 
 
+# ── CSS Portrait — idéntico al original, usado por html2pdf.js ────────────────
+CSS_PORTRAIT = """
+  body { margin:0; padding:4px; font-family:Arial,sans-serif; background:#F8FAFC; }
+  .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12); padding:2px; margin-bottom:16px; }
+  .ssf { width:100%; border-collapse:collapse; font-size:7px; color:#111; table-layout:fixed; }
+  .ssf td { border:1px solid #777; padding:1px 2px; vertical-align:middle;
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.3; }
+  .gh { background:#0D2340; color:white; font-weight:bold; text-align:center;
+        font-size:7.5px; padding:3px; white-space:normal; word-break:break-word; }
+  .lh { background:#0D2340; color:white; font-weight:bold; text-align:center;
+        padding:2px; white-space:normal; word-break:break-word; }
+  .lb { background:#D6E0F0; font-weight:bold; white-space:normal; }
+  .nb { border:none !important; }
+  img { max-width:100% !important; }
+"""
+
+# ── CSS Vista Previa — idéntico al original ───────────────────────────────────
 CSS_PREVIEW = """
   body { margin:0; padding:12px; font-family:Arial,sans-serif; background:#F8FAFC; }
   .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12); padding:8px; margin-bottom:28px; }
@@ -360,68 +379,19 @@ CSS_PREVIEW = """
   .nb { border:none !important; }
 """
 
-# ── HTML para la nueva pestaña (PDF idéntico a vista previa) ──────────────────
-# Mismo HTML, mismo CSS, solo cambia @page para A4 y font-size a 7px
-CSS_PDF_TAB = """
-  body  { margin:0; padding:4px; font-family:Arial,sans-serif; background:#F8FAFC;
-          -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12);
-               padding:2px; margin-bottom:16px; }
-  .ssf { width:100%; border-collapse:collapse; font-size:7px;
-         color:#111; table-layout:fixed; }
-  .ssf td { border:1px solid #777; padding:1px 2px; vertical-align:middle;
-            overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-            line-height:1.3; }
-  .gh { background:#0D2340 !important; color:white !important; font-weight:bold;
-        text-align:center; font-size:7.5px; padding:3px;
-        white-space:normal; word-break:break-word; }
-  .lh { background:#0D2340 !important; color:white !important; font-weight:bold;
-        text-align:center; padding:2px; white-space:normal; word-break:break-word; }
-  .lb { background:#D6E0F0 !important; font-weight:bold; white-space:normal; }
-  .nb { border:none !important; }
-  img { max-width:100% !important; }
-"""
 
-COLGROUP = (
-    '<colgroup>'
-    '<col style="width:28px"><col style="width:14%"><col style="width:8%">'
-    '<col style="width:7%"><col style="width:14%"><col style="width:12%">'
-    '<col style="width:12%"><col style="width:11%"><col style="width:10%">'
-    '<col style="width:70px">'
-    '</colgroup>'
-)
-
-
-def build_html_pdf_tab() -> str:
-    """HTML completo con html2pdf.js para descargar PDF identico a vista previa."""
+def build_html_pdf() -> str:
+    """HTML con CSS_PORTRAIT — idéntico al que usaba Playwright."""
     pages_html = build_pages_html()
-    pages_html = pages_html.replace(
-        '<table class="ssf">',
-        f'<table class="ssf">{COLGROUP}'
-    )
-    nombre_archivo = f"registro_{id_sel}.pdf"
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
-<title>Registro {id_sel}</title>
-<style>{CSS_PDF_TAB}</style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<style>
+{CSS_PORTRAIT}
+  body {{ margin:0; padding:0; background:white; }}
+  .page-wrap {{ box-shadow:none; padding:0; margin-bottom:0; }}
+</style>
 </head><body>
-<div id="contenido">
 {pages_html}
-</div>
-<script>
-  window.onload = function() {{
-    var opt = {{
-      margin:       [8, 5, 14, 5],
-      filename:     '{nombre_archivo}',
-      image:        {{ type: 'jpeg', quality: 0.98 }},
-      html2canvas:  {{ scale: 2, useCORS: true, letterRendering: true }},
-      jsPDF:        {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
-      pagebreak:    {{ mode: ['avoid-all', 'css', 'legacy'] }}
-    }};
-    html2pdf().set(opt).from(document.getElementById('contenido')).save();
-  }};
-</script>
 </body></html>
 """
 
@@ -437,12 +407,54 @@ def build_html_preview() -> str:
 """
 
 
-# ── Invalidar si cambian filtros ──────────────────────────────────────────────
+# ── HTML que abre en nueva pestaña y descarga el PDF con html2pdf.js ──────────
+def build_html_descarga() -> str:
+    """
+    Abre en nueva pestaña el HTML con CSS_PORTRAIT (exacto al original de Playwright)
+    y usa html2pdf.js para descargarlo como PDF — sin imprimir, sin diálogo.
+    """
+    pages_html = build_pages_html()
+    nombre = f"registro_{id_sel}.pdf"
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+{CSS_PORTRAIT}
+  body {{ margin:0; padding:0; background:white; }}
+  .page-wrap {{ box-shadow:none; padding:0; margin-bottom:16px; }}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head><body>
+<div id="doc">
+{pages_html}
+</div>
+<script>
+  window.onload = function() {{
+    var opt = {{
+      margin:      [8, 5, 8, 5],
+      filename:    '{nombre}',
+      image:       {{ type: 'jpeg', quality: 1.0 }},
+      html2canvas: {{
+        scale:         2,
+        useCORS:       true,
+        letterRendering: true,
+        backgroundColor: '#ffffff'
+      }},
+      jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
+      pagebreak: {{ mode: ['css', 'legacy'] }}
+    }};
+    html2pdf().set(opt).from(document.getElementById('doc')).save();
+  }};
+</script>
+</body></html>
+"""
+
+
+# ── Invalidar PDF si cambian los filtros ──────────────────────────────────────
 if st.session_state.get("pdf_id") and st.session_state.get("pdf_id") != id_sel:
     st.session_state.pop("pdf_listo", None)
     st.session_state.pop("pdf_id", None)
 
-# ── UI ────────────────────────────────────────────────────────────────────────
+# ── UI: botones ───────────────────────────────────────────────────────────────
 st.divider()
 col_b1, col_b2 = st.columns(2)
 
@@ -454,23 +466,23 @@ with col_b1:
 
 with col_b2:
     if st.session_state.get("pdf_listo"):
-        html_pdf = build_html_pdf_tab()
-        b64_pdf  = base64.b64encode(html_pdf.encode("utf-8")).decode()
-        # Abre nueva pestaña con html2pdf.js que descarga el PDF automáticamente
+        html_descarga = build_html_descarga()
+        b64           = base64.b64encode(html_descarga.encode("utf-8")).decode()
+        # Botón que abre nueva pestaña → html2pdf.js descarga el PDF automáticamente
         components.html(f"""
         <script>
-          function descargarPDF() {{
-            var win = window.open('', '_blank');
-            var html = atob('{b64_pdf}');
+          function descargar() {{
+            var html = atob('{b64}');
+            var win  = window.open('', '_blank');
             win.document.open();
             win.document.write(html);
             win.document.close();
           }}
         </script>
-        <button onclick="descargarPDF()"
-          style="width:100%;padding:10px;background:#0D2340;color:white;
+        <button onclick="descargar()"
+          style="width:100%;padding:10px 0;background:#0D2340;color:white;
                  border:none;border-radius:8px;font-size:15px;font-weight:700;
-                 cursor:pointer;letter-spacing:.03em;">
+                 cursor:pointer;letter-spacing:.03em;font-family:Arial,sans-serif;">
           ⬇ Descargar PDF
         </button>
         """, height=55)
@@ -478,7 +490,7 @@ with col_b2:
         st.button("⬇ Descargar PDF", disabled=True, use_container_width=True)
 
 if st.session_state.get("pdf_listo"):
-    st.success("✅ Registro generado. Presiona **⬇ Descargar PDF** — el archivo se descargará automáticamente.")
+    st.success("✅ Registro generado. Presiona **⬇ Descargar PDF** para obtener el archivo.")
     st.markdown("---")
     st.markdown("### 🔍 Vista Previa")
     altura = 1600 + (len(chunks) - 1) * 1400
