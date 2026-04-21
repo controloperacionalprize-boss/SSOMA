@@ -61,9 +61,11 @@ with st.spinner("Cargando datos..."):
         st.error(f"Error al cargar el archivo: {e}")
         st.stop()
 
+# fecha sin ISO
 df_cap["_FECHA_DT"]    = pd.to_datetime(df_cap["FECHA"], errors="coerce")
 df_cap["_FECHA_LABEL"] = df_cap["_FECHA_DT"].dt.strftime("%d/%m/%Y").fillna(df_cap["FECHA"].fillna(""))
 
+# ── Filtros ───────────────────────────────────────────────────────────────────
 fechas_disponibles = (
     df_cap["_FECHA_LABEL"].replace("", pd.NA).dropna()
     .sort_values().unique().tolist()
@@ -154,6 +156,7 @@ def gp(df_row, col: str) -> str:
 
 
 ROWS_PER_PAGE = 10
+
 total_part = len(part_filtrados)
 chunks = [
     part_filtrados.iloc[i:i + ROWS_PER_PAGE]
@@ -346,362 +349,87 @@ def build_pages_html() -> str:
     return pages
 
 
-CSS_PREVIEW = """
+# ── CSS pantalla (vista previa) ───────────────────────────────────────────────
+CSS_SCREEN = """
   body { margin:0; padding:12px; font-family:Arial,sans-serif; background:#F8FAFC; }
-  .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12); padding:8px; margin-bottom:28px; }
+  .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12);
+               padding:8px; margin-bottom:28px; }
   .ssf { width:100%; border-collapse:collapse; font-size:12px; color:#111; }
   .ssf td { border:1px solid #777; padding:3px 6px; vertical-align:middle; }
-  .gh { background:#0D2340; color:white; font-weight:bold; text-align:center; padding:6px; }
-  .lh { background:#0D2340; color:white; font-weight:bold; text-align:center; padding:4px; }
+  .gh { background:#0D2340; color:white; font-weight:bold;
+        text-align:center; padding:6px; }
+  .lh { background:#0D2340; color:white; font-weight:bold;
+        text-align:center; padding:4px; }
   .lb { background:#D6E0F0; font-weight:bold; }
   .nb { border:none !important; }
+  .btn-print { display:block; margin:0 auto 18px auto;
+               padding:10px 32px; background:#0D2340; color:white;
+               border:none; border-radius:8px; font-size:15px;
+               font-weight:700; cursor:pointer; letter-spacing:.03em; }
+  .btn-print:hover { background:#1a3a6b; }
+"""
+
+# ── CSS impresión (lo que sale en el PDF) ─────────────────────────────────────
+CSS_PRINT = """
+  @media print {
+    @page { size: A4 portrait; margin: 8mm 5mm 14mm 5mm; }
+    body  { margin:0; padding:0; background:white; -webkit-print-color-adjust:exact;
+            print-color-adjust:exact; }
+    .btn-print  { display:none !important; }
+    .page-wrap  { box-shadow:none; padding:0; margin-bottom:0;
+                  page-break-after:always; }
+    .page-wrap:last-child { page-break-after:avoid; }
+    .ssf { width:100%; border-collapse:collapse; font-size:7px;
+           color:#111; table-layout:fixed; }
+    .ssf td { border:1px solid #777; padding:1px 2px; vertical-align:middle;
+              overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+              line-height:1.3; }
+    .gh { background:#0D2340 !important; color:white !important;
+          font-weight:bold; text-align:center; font-size:7.5px;
+          padding:3px; white-space:normal; word-break:break-word; }
+    .lh { background:#0D2340 !important; color:white !important;
+          font-weight:bold; text-align:center; padding:2px;
+          white-space:normal; word-break:break-word; }
+    .lb { background:#D6E0F0 !important; font-weight:bold; white-space:normal; }
+    .nb { border:none !important; }
+    img { max-width:100% !important; }
+  }
 """
 
 
-def build_html_preview() -> str:
+def build_html_completo() -> str:
+    """HTML único con CSS pantalla + CSS impresión + botón imprimir."""
     pages_html = build_pages_html()
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
-<style>{CSS_PREVIEW}</style>
+<style>
+{CSS_SCREEN}
+{CSS_PRINT}
+</style>
 </head><body>
+<button class="btn-print" onclick="window.print()">🖨️ Imprimir / Guardar como PDF</button>
 {pages_html}
+<script>
+  // Pie de página dinámico solo en impresión (no soportado por CSS puro en todos los browsers)
+</script>
 </body></html>
 """
 
 
-# ── Generar PDF con ReportLab puro (sin dependencias del sistema) ─────────────
-def generar_pdf() -> bytes:
-    from reportlab.platypus import (
-        SimpleDocTemplate, Table, TableStyle,
-        Paragraph, Spacer, Image as RLImage
-    )
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import cm
-    from reportlab.lib import colors
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT
-
-    C_NAVY    = colors.HexColor("#0D2340")
-    C_BLUE_LT = colors.HexColor("#D6E0F0")
-    C_GRAY    = colors.HexColor("#777777")
-    C_WHITE   = colors.white
-    C_YELLOW  = colors.HexColor("#fff9c4")
-
-    PW, PH = A4
-    ML = MR = 0.5 * cm
-    MT = 0.8 * cm
-    MB = 1.2 * cm
-    CW = PW - ML - MR
-
-    buf       = BytesIO()
-    tmp_files = []
-
-    def make_footer(canv, doc):
-        canv.saveState()
-        canv.setFont("Helvetica", 6)
-        canv.setFillColor(colors.HexColor("#64748B"))
-        canv.drawString(ML, 0.5 * cm,
-                        "Documento de uso interno — Prohibida su reproducción sin autorización")
-        canv.drawCentredString(PW / 2, 0.5 * cm, f"— {doc.page} —")
-        canv.drawRightString(PW - MR, 0.5 * cm, f"Generado: {gen_fecha}")
-        canv.restoreState()
-
-    doc = SimpleDocTemplate(buf, pagesize=A4,
-                            leftMargin=ML, rightMargin=MR,
-                            topMargin=MT, bottomMargin=MB)
-
-    def PS(name, **kw):
-        return ParagraphStyle(name, **kw)
-
-    S_HDR  = PS("hdr",  fontSize=6,   fontName="Helvetica-Bold",
-                textColor=C_WHITE,  alignment=TA_CENTER, leading=8)
-    S_LBL  = PS("lbl",  fontSize=6,   fontName="Helvetica-Bold",
-                textColor=C_NAVY,   alignment=TA_LEFT,   leading=8)
-    S_VAL  = PS("val",  fontSize=6,   fontName="Helvetica",
-                textColor=colors.black, alignment=TA_LEFT,   leading=8)
-    S_VALC = PS("valc", fontSize=6,   fontName="Helvetica",
-                textColor=colors.black, alignment=TA_CENTER, leading=8)
-    S_TITL = PS("titl", fontSize=7.5, fontName="Helvetica-Bold",
-                textColor=C_WHITE,  alignment=TA_CENTER, leading=10)
-
-    el = []
-
-    # ── LOGO ──────────────────────────────────────────────────────────────────
-    logo_cell = ""
-    if _LOGO_B64:
-        try:
-            logo_data = base64.b64decode(_LOGO_B64)
-            ltmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-            ltmp.write(logo_data)
-            ltmp.close()
-            tmp_files.append(ltmp.name)
-            logo_cell = RLImage(ltmp.name, width=2.2 * cm, height=1.4 * cm)
-        except Exception:
-            pass
-
-    # ── CABECERA ──────────────────────────────────────────────────────────────
-    cod_s = PS("cod", fontSize=5.5, fontName="Helvetica",
-               textColor=colors.black, leading=8)
-    sub_s = PS("sub", fontSize=5,   fontName="Helvetica",
-               textColor=colors.black, alignment=TA_CENTER, leading=7)
-
-    head_data = [
-        [logo_cell,
-         Paragraph("REGISTRO DE INDUCCIÓN, CAPACITACIÓN,<br/>ENTRENAMIENTO Y SIMULACROS DE EMERGENCIA", S_TITL),
-         Paragraph("<b>Código:</b> PAQ-DO-FT-001<br/><b>Versión:</b> 03 | Set-2025<br/><b>Rev:</b> 02", cod_s)],
-        ["",
-         Paragraph("Elaborado por: Desarrollo Organizacional  |  Revisado por: SIG & Certificaciones  |  "
-                   "Aprobado por: Jefatura de Gestión de Talento Humano", sub_s),
-         ""],
-    ]
-    t_head = Table(head_data, colWidths=[2.4 * cm, CW - 5.2 * cm, 2.8 * cm],
-                   rowHeights=[1.4 * cm, 0.4 * cm])
-    t_head.setStyle(TableStyle([
-        ("SPAN",         (0, 0), (0, 1)),
-        ("SPAN",         (1, 1), (2, 1)),
-        ("BACKGROUND",   (1, 0), (1, 0), C_NAVY),
-        ("BACKGROUND",   (2, 0), (2, 0), C_BLUE_LT),
-        ("BACKGROUND",   (1, 1), (2, 1), C_BLUE_LT),
-        ("BOX",          (0, 0), (-1, -1), 0.5, C_GRAY),
-        ("INNERGRID",    (0, 0), (-1, -1), 0.3, C_GRAY),
-        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN",        (0, 0), (0, -1), "CENTER"),
-    ]))
-    el.append(t_head)
-
-    # ── EMPRESAS ──────────────────────────────────────────────────────────────
-    ec1 = C_YELLOW if "AQU ANQA II" not in empresa and "AQU ANQA" in empresa else C_WHITE
-    ec2 = C_YELLOW if "AQU ANQA II" in empresa else C_WHITE
-
-    emp_data = [
-        [Paragraph("MARCA", S_HDR), Paragraph("RAZÓN SOCIAL", S_HDR),
-         Paragraph("RUC", S_HDR), Paragraph("DOMICILIO", S_HDR),
-         Paragraph("ACTIVIDAD ECONÓMICA", S_HDR), Paragraph("N° TRAB.", S_HDR), ""],
-        [Paragraph("AQUA\nNOA", S_VALC), Paragraph("AQU ANQA S.A.C.", S_VAL),
-         Paragraph("20608345770", S_VALC),
-         Paragraph("Car. Panamericana Km. 625 - La Arenita - Razuri", S_VAL),
-         Paragraph("0122 - Cultivo de frutas tropicales y subtropicales", S_VAL), "", ""],
-        [Paragraph("AQUA\nNOA II", S_VALC), Paragraph("AQU ANQA II S.A.C.", S_VAL),
-         Paragraph("20610068767", S_VALC),
-         Paragraph("Car. Panamericana Km. 639 - La Arenita - Paijan", S_VAL),
-         Paragraph("0122 - Cultivo de frutas tropicales y subtropicales", S_VAL), "", ""],
-    ]
-    t_emp = Table(emp_data, colWidths=[1.2*cm, 3.2*cm, 1.8*cm, 4.5*cm, 4.5*cm, 1.2*cm, 1.2*cm])
-    t_emp.setStyle(TableStyle([
-        ("BACKGROUND",      (0, 0), (-1, 0), C_NAVY),
-        ("BACKGROUND",      (0, 1), (-1, 1), ec1),
-        ("BACKGROUND",      (0, 2), (-1, 2), ec2),
-        ("BOX",             (0, 0), (-1, -1), 0.5, C_GRAY),
-        ("INNERGRID",       (0, 0), (-1, -1), 0.3, C_GRAY),
-        ("VALIGN",          (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING",      (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING",   (0, 0), (-1, -1), 2),
-    ]))
-    el.append(t_emp)
-
-    # ── DATOS GENERALES ───────────────────────────────────────────────────────
-    def cb_rl(m): return "■" if m else "□"
-
-    dat_data = [
-        [Paragraph("SEDE", S_LBL), Paragraph(sede, S_VAL),
-         Paragraph("UBICACIÓN", S_LBL), Paragraph(ubicacion, S_VAL),
-         Paragraph(f"SEMANA: {semana}", S_LBL), Paragraph(f"DURACIÓN: {duracion}", S_VAL)],
-        [Paragraph("PROCEDENCIA", S_LBL),
-         Paragraph(f"{cb_rl(procedencia=='INTERNA')} Interna  {cb_rl(procedencia=='EXTERNA')} Externa", S_VAL),
-         Paragraph("TIPO:", S_LBL),
-         Paragraph(f"{cb_rl('INDUCC' in tipo)} Inducción  {cb_rl('CAPACIT' in tipo)} Capacitación  "
-                   f"{cb_rl('ENTREN' in tipo)} Entrenamiento  {cb_rl('SIMUL' in tipo)} Simulacro", S_VAL),
-         Paragraph(f"{cb_rl('CHARLA' in tipo)} Charla 5min  {cb_rl('CURSO' in tipo)} Curso  "
-                   f"{cb_rl('TALLER' in tipo)} Taller  {cb_rl('OTRO' in tipo)} Otro: {tipo_otro}", S_VAL), ""],
-        [Paragraph("TEMA(S):", S_LBL), Paragraph(tema_display, S_VAL), "", "", "", ""],
-        [Paragraph("OBJETIVO(S):", S_LBL), Paragraph(objetivo, S_VAL),  "", "", "", ""],
-    ]
-    t_dat = Table(dat_data, colWidths=[1.8*cm, 3.2*cm, 1.5*cm, 4.5*cm, 4.5*cm, 2.1*cm])
-    t_dat.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (0, -1), C_BLUE_LT),
-        ("BACKGROUND",    (2, 0), (2, -1), C_BLUE_LT),
-        ("SPAN",          (1, 2), (5, 2)),
-        ("SPAN",          (1, 3), (5, 3)),
-        ("BOX",           (0, 0), (-1, -1), 0.5, C_GRAY),
-        ("INNERGRID",     (0, 0), (-1, -1), 0.3, C_GRAY),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING",    (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
-    el.append(t_dat)
-
-    # ── TABLA PARTICIPANTES ───────────────────────────────────────────────────
-    def fetch_img(url, w=1.8*cm, h=0.7*cm):
-        if not url or not url.startswith("http"): return ""
-        try:
-            r = requests.get(url, timeout=8)
-            r.raise_for_status()
-            ext  = ".png" if "png" in r.headers.get("Content-Type", "") else ".jpg"
-            ftmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-            ftmp.write(r.content); ftmp.close()
-            tmp_files.append(ftmp.name)
-            return RLImage(ftmp.name, width=w, height=h)
-        except Exception:
-            return ""
-
-    part_header = [
-        Paragraph("N°", S_HDR), Paragraph("APELLIDOS Y NOMBRES", S_HDR),
-        Paragraph("DNI", S_HDR), Paragraph("PUESTO", S_HDR),
-        Paragraph("ÁREA", S_HDR), Paragraph("FIRMA", S_HDR), Paragraph("FECHA", S_HDR),
-    ]
-    part_rows   = [part_header]
-    row_heights = [0.5 * cm]
-
-    for pg, chunk in enumerate(chunks):
-        for i in range(ROWS_PER_PAGE):
-            n = pg * ROWS_PER_PAGE + i + 1
-            if i < len(chunk):
-                p = chunk.iloc[i]
-                part_rows.append([
-                    Paragraph(str(n), S_VALC),
-                    Paragraph(gp(p, "APELLIDOS_NOMBRES"), S_VAL),
-                    Paragraph(gp(p, "DNI"), S_VALC),
-                    Paragraph(gp(p, "PUESTO"), S_VAL),
-                    Paragraph(gp(p, "AREA"), S_VAL),
-                    fetch_img(gp(p, "FIRMA_URL").lower()),
-                    Paragraph(fecha, S_VALC),
-                ])
-            else:
-                part_rows.append([Paragraph(str(n), S_VALC), "", "", "", "", "", ""])
-            row_heights.append(0.9 * cm)
-
-    cw_part = [0.6*cm, 4.5*cm, 1.6*cm, 3.0*cm, 3.0*cm, 2.2*cm, 1.7*cm]
-    sty_part = [
-        ("BACKGROUND",   (0, 0), (-1, 0), C_NAVY),
-        ("BOX",          (0, 0), (-1, -1), 0.5, C_GRAY),
-        ("INNERGRID",    (0, 0), (-1, -1), 0.3, C_GRAY),
-        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN",        (0, 0), (-1, -1), "CENTER"),
-        ("TOPPADDING",   (0, 0), (-1, -1), 1),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 1),
-    ]
-    for i in range(1, len(part_rows)):
-        bg = C_BLUE_LT if i % 2 == 1 else C_WHITE
-        sty_part.append(("BACKGROUND", (0, i), (-1, i), bg))
-
-    t_part = Table(part_rows, colWidths=cw_part, rowHeights=row_heights)
-    t_part.setStyle(TableStyle(sty_part))
-    el.append(t_part)
-
-    # ── OBSERVACIONES ─────────────────────────────────────────────────────────
-    t_obs = Table(
-        [[Paragraph("OBSERVACIONES:", S_LBL), Paragraph(observ, S_VAL)]],
-        colWidths=[2.2 * cm, CW - 2.2 * cm]
-    )
-    t_obs.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (0, 0), C_BLUE_LT),
-        ("BOX",           (0, 0), (-1, -1), 0.5, C_GRAY),
-        ("INNERGRID",     (0, 0), (-1, -1), 0.3, C_GRAY),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING",    (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-    ]))
-    el.append(t_obs)
-
-    # ── FIRMAS EXPOSITORES ────────────────────────────────────────────────────
-    exp_firma  = fetch_img(firma_exp_url,  w=2.5*cm, h=1.0*cm)
-    resp_firma = fetch_img(firma_resp_url, w=2.5*cm, h=1.0*cm)
-
-    t_exp = Table([
-        [Paragraph("EXPOSITOR 1:", S_HDR), "", "",
-         Paragraph("EXPOSITOR 2:", S_HDR), "",
-         Paragraph("EXPOSITOR 3:", S_HDR), ""],
-        [Paragraph("NOMBRE:", S_LBL), Paragraph(expositor, S_VAL), "",
-         Paragraph("NOMBRE:", S_LBL), "",
-         Paragraph("NOMBRE:", S_LBL), ""],
-        [Paragraph("FIRMA:",  S_LBL), exp_firma or "", "",
-         Paragraph("FIRMA:",  S_LBL), "",
-         Paragraph("FIRMA:",  S_LBL), ""],
-    ], colWidths=[1.2*cm, 3.8*cm, 0.5*cm, 1.2*cm, 3.8*cm, 1.2*cm, 3.8*cm],
-       rowHeights=[0.4*cm, 0.4*cm, 1.2*cm])
-    t_exp.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (2, 0), C_NAVY),
-        ("BACKGROUND",    (3, 0), (4, 0), C_NAVY),
-        ("BACKGROUND",    (5, 0), (6, 0), C_NAVY),
-        ("BACKGROUND",    (0, 1), (0, -1), C_BLUE_LT),
-        ("BACKGROUND",    (3, 1), (3, -1), C_BLUE_LT),
-        ("BACKGROUND",    (5, 1), (5, -1), C_BLUE_LT),
-        ("BOX",           (0, 0), (-1, -1), 0.5, C_GRAY),
-        ("INNERGRID",     (0, 0), (-1, -1), 0.3, C_GRAY),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN",         (1, 2), (1, 2), "CENTER"),
-        ("TOPPADDING",    (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
-    el.append(t_exp)
-
-    # ── RESPONSABLE DEL REGISTRO ──────────────────────────────────────────────
-    t_resp = Table([
-        [Paragraph("RESPONSABLE DEL REGISTRO", S_HDR), "", "", ""],
-        [Paragraph("APELLIDOS Y NOMBRES", S_HDR), Paragraph("CARGO", S_HDR),
-         Paragraph("FIRMA", S_HDR), Paragraph("FECHA", S_HDR)],
-        [Paragraph(responsable, S_VAL), "", resp_firma or "", Paragraph(fecha, S_VALC)],
-    ], colWidths=[5*cm, 4*cm, 3.5*cm, 2*cm],
-       rowHeights=[0.4*cm, 0.4*cm, 1.2*cm])
-    t_resp.setStyle(TableStyle([
-        ("SPAN",          (0, 0), (-1, 0)),
-        ("BACKGROUND",    (0, 0), (-1, 1), C_NAVY),
-        ("BOX",           (0, 0), (-1, -1), 0.5, C_GRAY),
-        ("INNERGRID",     (0, 0), (-1, -1), 0.3, C_GRAY),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN",         (2, 2), (2, 2), "CENTER"),
-        ("TOPPADDING",    (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ]))
-    el.append(t_resp)
-
-    doc.build(el, onFirstPage=make_footer, onLaterPages=make_footer)
-    buf.seek(0)
-
-    for f in tmp_files:
-        try:
-            os.unlink(f)
-        except Exception:
-            pass
-
-    return buf.getvalue()
-
-
-# ── Invalidar PDF si cambian los filtros ──────────────────────────────────────
+# ── Invalidar cache si cambian filtros ────────────────────────────────────────
 if st.session_state.get("pdf_id") and st.session_state.get("pdf_id") != id_sel:
-    st.session_state.pop("pdf_bytes", None)
     st.session_state.pop("pdf_listo", None)
     st.session_state.pop("pdf_id", None)
 
-# ── UI: botones ───────────────────────────────────────────────────────────────
+# ── UI ────────────────────────────────────────────────────────────────────────
 st.divider()
-col_b1, col_b2 = st.columns(2)
 
-with col_b1:
-    if st.button("🔍 Generar Vista Previa", use_container_width=True, type="secondary"):
-        with st.spinner("Generando informe..."):
-            pdf_bytes = generar_pdf()
-        st.session_state["pdf_bytes"] = pdf_bytes
-        st.session_state["pdf_listo"] = True
-        st.session_state["pdf_id"]    = id_sel
-        st.rerun()
-
-with col_b2:
-    if st.session_state.get("pdf_listo"):
-        st.download_button(
-            label="⬇ Descargar PDF",
-            data=st.session_state["pdf_bytes"],
-            file_name=f"registro_{st.session_state.get('pdf_id', id_sel)}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            type="primary",
-        )
-    else:
-        st.button("⬇ Descargar PDF", disabled=True, use_container_width=True)
+if st.button("🔍 Generar Vista Previa / PDF", use_container_width=True, type="primary"):
+    st.session_state["pdf_listo"] = True
+    st.session_state["pdf_id"]    = id_sel
 
 if st.session_state.get("pdf_listo"):
-    st.success("✅ Registro generado. Revisa la vista previa antes de descargar.")
+    st.info("✅ Registro generado. Usa el botón **🖨️ Imprimir / Guardar como PDF** dentro del recuadro — elige **'Guardar como PDF'** en el diálogo de impresión.")
     st.markdown("---")
-    st.markdown("### 🔍 Vista Previa")
     altura = 1600 + (len(chunks) - 1) * 1400
-    components.html(build_html_preview(), height=altura, scrolling=True)
+    components.html(build_html_completo(), height=altura + 80, scrolling=True)
