@@ -8,12 +8,6 @@ import base64
 import os
 import tempfile
 
-try:
-    from weasyprint import HTML, CSS
-except ImportError:
-    st.error("WeasyPrint no está instalado. Por favor, ejecuta: pip install weasyprint")
-    st.stop()
-
 # logo — descarga desde URL y cachea en disco
 LOGO_URL  = "https://github.com/CCozd/BI_SIG_CAMPO/blob/main/logo.png?raw=true"
 _LOGO_TMP = os.path.join(tempfile.gettempdir(), "ssoma_logo.png")
@@ -338,7 +332,6 @@ def build_pages_html() -> str:
         page_break = "" if is_last else 'style="page-break-after:always;"'
 
         if is_first:
-            # Primera página: header completo + filas
             pages += f"""
 <div class="page-wrap" {page_break}>
   <table class="ssf">
@@ -348,7 +341,6 @@ def build_pages_html() -> str:
   </table>
 </div>"""
         else:
-            # Páginas siguientes: solo filas (sin header)
             pages += f"""
 <div class="page-wrap" {page_break}>
   <table class="ssf">
@@ -359,32 +351,13 @@ def build_pages_html() -> str:
     return pages
 
 
-# ── Footer ─────────────────────────────────────────────────────────────────────
-FOOTER_HTML = f"""
-<div style="width:100%;font-family:Arial,sans-serif;font-size:7pt;padding:0 8mm;box-sizing:border-box;">
-  <div style="border-top:1.5px solid #0D2340;border-bottom:0.5px solid #334155;
-              display:flex;justify-content:space-between;align-items:center;
-              padding:2px 0;white-space:nowrap;">
-    <span style="color:#64748B;font-size:6.5pt;flex:1;overflow:hidden;text-overflow:ellipsis;">
-      Documento de uso interno — Prohibida su reproducción sin autorización
-    </span>
-    <span style="color:#0D2340;font-weight:bold;font-size:8pt;flex-shrink:0;padding:0 8px;">
-      — <span class="pageNumber"></span> —
-    </span>
-    <span style="color:#64748B;font-size:6.5pt;flex:1;text-align:right;">
-      Generado: {gen_fecha}
-    </span>
-  </div>
-</div>"""
+gen_fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
 
-# ── CSS Portrait — font pequeño + table-layout:fixed para no desbordar ────────
 CSS_PORTRAIT = """
-  @page {
-    size: A4 portrait;
-    margin: 8mm 5mm 16mm 5mm;
-  }
-  body { margin:0; padding:4px; font-family:Arial,sans-serif; background:#F8FAFC; }
-  .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12); padding:2px; margin-bottom:16px; }
+  @page { size: A4 portrait; margin: 8mm 5mm 16mm 5mm; }
+  body { margin:0; padding:0; font-family:Arial,sans-serif; background:white; }
+  .page-wrap { background:white; padding:2px; margin-bottom:0; page-break-after:always; }
+  .page-wrap:last-child { page-break-after:avoid; }
   .ssf { width:100%; border-collapse:collapse; font-size:7px; color:#111; table-layout:fixed; }
   .ssf td { border:1px solid #777; padding:1px 2px; vertical-align:middle;
             overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1.3; }
@@ -395,9 +368,11 @@ CSS_PORTRAIT = """
   .lb { background:#D6E0F0; font-weight:bold; white-space:normal; }
   .nb { border:none !important; }
   img { max-width:100% !important; }
+  .footer-pdf { position:fixed; bottom:0; left:0; right:0; font-family:Arial,sans-serif;
+                font-size:6.5pt; padding:2px 8mm; border-top:1.5px solid #0D2340;
+                display:flex; justify-content:space-between; color:#64748B; }
 """
 
-# CSS vista previa en pantalla (se ve mejor con más espacio)
 CSS_PREVIEW = """
   body { margin:0; padding:12px; font-family:Arial,sans-serif; background:#F8FAFC; }
   .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12); padding:8px; margin-bottom:28px; }
@@ -414,10 +389,12 @@ def build_html_pdf() -> str:
     pages_html = build_pages_html()
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
-<style>
-{CSS_PORTRAIT}
-</style>
+<style>{CSS_PORTRAIT}</style>
 </head><body>
+<div class="footer-pdf">
+  <span>Documento de uso interno — Prohibida su reproducción sin autorización</span>
+  <span>Generado: {gen_fecha}</span>
+</div>
 {pages_html}
 </body></html>
 """
@@ -434,15 +411,12 @@ def build_html_preview() -> str:
 """
 
 
-# ── Generar PDF con WeasyPrint (mejor que Playwright para Streamlit Cloud) ────
+# ── Generar PDF con xhtml2pdf ─────────────────────────────────────────────────
 def generar_pdf(html_str: str) -> bytes:
-    """Genera PDF desde HTML usando WeasyPrint."""
-    try:
-        pdf_bytes = HTML(string=html_str).write_pdf()
-        return pdf_bytes
-    except Exception as e:
-        st.error(f"Error generando PDF: {e}")
-        return None
+    from xhtml2pdf import pisa
+    buf = BytesIO()
+    pisa.CreatePDF(html_str, dest=buf, encoding="utf-8")
+    return buf.getvalue()
 
 
 # ── Invalidar PDF si cambian los filtros ──────────────────────────────────────
@@ -459,11 +433,10 @@ with col_b1:
     if st.button("🔍 Generar Vista Previa", use_container_width=True, type="secondary"):
         with st.spinner("Generando informe..."):
             pdf_bytes = generar_pdf(build_html_pdf())
-        if pdf_bytes:
-            st.session_state["pdf_bytes"] = pdf_bytes
-            st.session_state["pdf_listo"] = True
-            st.session_state["pdf_id"]    = id_sel
-            st.rerun()
+        st.session_state["pdf_bytes"] = pdf_bytes
+        st.session_state["pdf_listo"] = True
+        st.session_state["pdf_id"]    = id_sel
+        st.rerun()
 
 with col_b2:
     if st.session_state.get("pdf_listo"):
