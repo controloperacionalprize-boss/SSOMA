@@ -1,6 +1,7 @@
-streamlit>=1.28.0
-pandas>=2.0.0
-requests>=2.31.0
-weasyprint>=59.0
+streamlit
+pandas
+requests
+xhtml2pdf
 openpyxl
-pillow>=9.0.0
+pillow
+reportlab
