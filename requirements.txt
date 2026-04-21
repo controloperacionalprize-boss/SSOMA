@@ -1,7 +1,6 @@
 streamlit
 pandas
 requests
-xhtml2pdf
+reportlab
 openpyxl
 pillow
-reportlab
