@@ -5,4 +5,3 @@ reportlab
 openpyxl
 pillow
 pdf2image
-poppler-utils
