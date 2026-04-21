@@ -364,31 +364,63 @@ CSS_PREVIEW = """
 # Mismo HTML, mismo CSS, solo cambia @page para A4 y font-size a 7px
 CSS_PDF_TAB = """
   @page { size: A4 portrait; margin: 8mm 5mm 14mm 5mm; }
-  body  { margin:0; padding:2px; font-family:Arial,sans-serif; background:white;
+  body  { margin:0; padding:0; font-family:Arial,sans-serif; background:white;
           -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  .no-print { display:none !important; }
-  .page-wrap { background:white; padding:2px; margin-bottom:0;
+  .page-wrap { background:white; padding:0; margin-bottom:0;
                page-break-after:always; }
   .page-wrap:last-child { page-break-after:avoid; }
-  .ssf { width:100%; border-collapse:collapse; font-size:7px;
-         color:#111; table-layout:fixed; }
-  .ssf td { border:1px solid #777; padding:1px 2px; vertical-align:middle;
-            overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-            line-height:1.3; }
-  .gh { background:#0D2340 !important; color:white !important; font-weight:bold;
-        text-align:center; font-size:7.5px; padding:3px;
-        white-space:normal; word-break:break-word; }
-  .lh { background:#0D2340 !important; color:white !important; font-weight:bold;
-        text-align:center; padding:2px; white-space:normal; word-break:break-word; }
+  .ssf {
+    width:100%; border-collapse:collapse; font-size:7px;
+    color:#111; table-layout:fixed;
+  }
+  /* Anchos fijos para las 10 columnas via colgroup */
+  .c1  { width:28px;  }
+  .c2  { width:14%;   }
+  .c3  { width:8%;    }
+  .c4  { width:7%;    }
+  .c5  { width:14%;   }
+  .c6  { width:12%;   }
+  .c7  { width:12%;   }
+  .c8  { width:11%;   }
+  .c9  { width:10%;   }
+  .c10 { width:70px;  }
+  .ssf td {
+    border:1px solid #777; padding:1px 2px; vertical-align:middle;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    line-height:1.4;
+  }
+  .gh {
+    background:#0D2340 !important; color:white !important;
+    font-weight:bold; text-align:center; font-size:7.5px; padding:3px;
+    white-space:normal; word-break:break-word;
+  }
+  .lh {
+    background:#0D2340 !important; color:white !important;
+    font-weight:bold; text-align:center; padding:2px;
+    white-space:normal; word-break:break-word;
+  }
   .lb { background:#D6E0F0 !important; font-weight:bold; white-space:normal; }
   .nb { border:none !important; }
-  img { max-width:100% !important; }
+  img { max-width:100% !important; max-height:34px !important; }
 """
+
+COLGROUP = (
+    '<colgroup>'
+    '<col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5">'
+    '<col class="c6"><col class="c7"><col class="c8"><col class="c9"><col class="c10">'
+    '</colgroup>'
+)
 
 
 def build_html_pdf_tab() -> str:
-    """HTML completo para abrir en nueva pestaña e imprimir."""
+    """HTML completo para abrir en nueva pestaña e imprimir.
+    Inyecta colgroup en cada tabla .ssf para fijar anchos de columna."""
     pages_html = build_pages_html()
+    # Insertar colgroup justo después de cada <table class="ssf">
+    pages_html = pages_html.replace(
+        '<table class="ssf">',
+        f'<table class="ssf">{COLGROUP}'
+    )
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <title>Registro {id_sel}</title>
@@ -396,9 +428,8 @@ def build_html_pdf_tab() -> str:
 </head><body>
 {pages_html}
 <script>
-  // Imprimir automáticamente al abrir la pestaña
   window.onload = function() {{
-    setTimeout(function() {{ window.print(); }}, 600);
+    setTimeout(function() {{ window.print(); }}, 700);
   }};
 </script>
 </body></html>
