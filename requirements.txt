@@ -3,4 +3,5 @@ pandas
 requests
 reportlab
 openpyxl
-playwright>=1.40.0
+pillow
+pdf2image
