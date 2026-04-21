@@ -349,87 +349,118 @@ def build_pages_html() -> str:
     return pages
 
 
-# ── CSS pantalla (vista previa) ───────────────────────────────────────────────
-CSS_SCREEN = """
+CSS_PREVIEW = """
   body { margin:0; padding:12px; font-family:Arial,sans-serif; background:#F8FAFC; }
-  .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12);
-               padding:8px; margin-bottom:28px; }
+  .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12); padding:8px; margin-bottom:28px; }
   .ssf { width:100%; border-collapse:collapse; font-size:12px; color:#111; }
   .ssf td { border:1px solid #777; padding:3px 6px; vertical-align:middle; }
-  .gh { background:#0D2340; color:white; font-weight:bold;
-        text-align:center; padding:6px; }
-  .lh { background:#0D2340; color:white; font-weight:bold;
-        text-align:center; padding:4px; }
+  .gh { background:#0D2340; color:white; font-weight:bold; text-align:center; padding:6px; }
+  .lh { background:#0D2340; color:white; font-weight:bold; text-align:center; padding:4px; }
   .lb { background:#D6E0F0; font-weight:bold; }
   .nb { border:none !important; }
-  .btn-print { display:block; margin:0 auto 18px auto;
-               padding:10px 32px; background:#0D2340; color:white;
-               border:none; border-radius:8px; font-size:15px;
-               font-weight:700; cursor:pointer; letter-spacing:.03em; }
-  .btn-print:hover { background:#1a3a6b; }
 """
 
-# ── CSS impresión (lo que sale en el PDF) ─────────────────────────────────────
-CSS_PRINT = """
-  @media print {
-    @page { size: A4 portrait; margin: 8mm 5mm 14mm 5mm; }
-    body  { margin:0; padding:0; background:white; -webkit-print-color-adjust:exact;
-            print-color-adjust:exact; }
-    .btn-print  { display:none !important; }
-    .page-wrap  { box-shadow:none; padding:0; margin-bottom:0;
-                  page-break-after:always; }
-    .page-wrap:last-child { page-break-after:avoid; }
-    .ssf { width:100%; border-collapse:collapse; font-size:7px;
-           color:#111; table-layout:fixed; }
-    .ssf td { border:1px solid #777; padding:1px 2px; vertical-align:middle;
-              overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-              line-height:1.3; }
-    .gh { background:#0D2340 !important; color:white !important;
-          font-weight:bold; text-align:center; font-size:7.5px;
-          padding:3px; white-space:normal; word-break:break-word; }
-    .lh { background:#0D2340 !important; color:white !important;
-          font-weight:bold; text-align:center; padding:2px;
-          white-space:normal; word-break:break-word; }
-    .lb { background:#D6E0F0 !important; font-weight:bold; white-space:normal; }
-    .nb { border:none !important; }
-    img { max-width:100% !important; }
-  }
+# ── HTML para la nueva pestaña (PDF idéntico a vista previa) ──────────────────
+# Mismo HTML, mismo CSS, solo cambia @page para A4 y font-size a 7px
+CSS_PDF_TAB = """
+  @page { size: A4 portrait; margin: 8mm 5mm 14mm 5mm; }
+  body  { margin:0; padding:2px; font-family:Arial,sans-serif; background:white;
+          -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .no-print { display:none !important; }
+  .page-wrap { background:white; padding:2px; margin-bottom:0;
+               page-break-after:always; }
+  .page-wrap:last-child { page-break-after:avoid; }
+  .ssf { width:100%; border-collapse:collapse; font-size:7px;
+         color:#111; table-layout:fixed; }
+  .ssf td { border:1px solid #777; padding:1px 2px; vertical-align:middle;
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+            line-height:1.3; }
+  .gh { background:#0D2340 !important; color:white !important; font-weight:bold;
+        text-align:center; font-size:7.5px; padding:3px;
+        white-space:normal; word-break:break-word; }
+  .lh { background:#0D2340 !important; color:white !important; font-weight:bold;
+        text-align:center; padding:2px; white-space:normal; word-break:break-word; }
+  .lb { background:#D6E0F0 !important; font-weight:bold; white-space:normal; }
+  .nb { border:none !important; }
+  img { max-width:100% !important; }
 """
 
 
-def build_html_completo() -> str:
-    """HTML único con CSS pantalla + CSS impresión + botón imprimir."""
+def build_html_pdf_tab() -> str:
+    """HTML completo para abrir en nueva pestaña e imprimir."""
     pages_html = build_pages_html()
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
-<style>
-{CSS_SCREEN}
-{CSS_PRINT}
-</style>
+<title>Registro {id_sel}</title>
+<style>{CSS_PDF_TAB}</style>
 </head><body>
-<button class="btn-print" onclick="window.print()">🖨️ Imprimir / Guardar como PDF</button>
 {pages_html}
 <script>
-  // Pie de página dinámico solo en impresión (no soportado por CSS puro en todos los browsers)
+  // Imprimir automáticamente al abrir la pestaña
+  window.onload = function() {{
+    setTimeout(function() {{ window.print(); }}, 600);
+  }};
 </script>
 </body></html>
 """
 
 
-# ── Invalidar cache si cambian filtros ────────────────────────────────────────
+def build_html_preview() -> str:
+    pages_html = build_pages_html()
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>{CSS_PREVIEW}</style>
+</head><body>
+{pages_html}
+</body></html>
+"""
+
+
+# ── Invalidar si cambian filtros ──────────────────────────────────────────────
 if st.session_state.get("pdf_id") and st.session_state.get("pdf_id") != id_sel:
     st.session_state.pop("pdf_listo", None)
     st.session_state.pop("pdf_id", None)
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 st.divider()
+col_b1, col_b2 = st.columns(2)
 
-if st.button("🔍 Generar Vista Previa / PDF", use_container_width=True, type="primary"):
-    st.session_state["pdf_listo"] = True
-    st.session_state["pdf_id"]    = id_sel
+with col_b1:
+    if st.button("🔍 Generar Vista Previa", use_container_width=True, type="secondary"):
+        st.session_state["pdf_listo"] = True
+        st.session_state["pdf_id"]    = id_sel
+        st.rerun()
+
+with col_b2:
+    if st.session_state.get("pdf_listo"):
+        # Codificar el HTML completo en base64 y abrirlo en nueva pestaña
+        html_pdf   = build_html_pdf_tab()
+        b64_pdf    = base64.b64encode(html_pdf.encode("utf-8")).decode()
+        data_url   = f"data:text/html;base64,{b64_pdf}"
+        # Botón que abre nueva pestaña con el HTML listo para imprimir
+        components.html(f"""
+        <script>
+          function abrirPDF() {{
+            var win = window.open('', '_blank');
+            var html = atob('{b64_pdf}');
+            win.document.open();
+            win.document.write(html);
+            win.document.close();
+          }}
+        </script>
+        <button onclick="abrirPDF()"
+          style="width:100%;padding:10px;background:#0D2340;color:white;
+                 border:none;border-radius:8px;font-size:15px;font-weight:700;
+                 cursor:pointer;letter-spacing:.03em;">
+          🖨️ Abrir PDF / Imprimir
+        </button>
+        """, height=55)
+    else:
+        st.button("🖨️ Abrir PDF / Imprimir", disabled=True, use_container_width=True)
 
 if st.session_state.get("pdf_listo"):
-    st.info("✅ Registro generado. Usa el botón **🖨️ Imprimir / Guardar como PDF** dentro del recuadro — elige **'Guardar como PDF'** en el diálogo de impresión.")
+    st.success("✅ Registro generado. Presiona **🖨️ Abrir PDF / Imprimir** → el diálogo se abre automáticamente → elige **Guardar como PDF**.")
     st.markdown("---")
+    st.markdown("### 🔍 Vista Previa")
     altura = 1600 + (len(chunks) - 1) * 1400
-    components.html(build_html_completo(), height=altura + 80, scrolling=True)
+    components.html(build_html_preview(), height=altura, scrolling=True)
