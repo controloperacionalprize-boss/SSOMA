@@ -1,3 +1,19 @@
+import subprocess
+import sys
+import os
+
+# Instalar navegadores de Playwright en Streamlit Cloud
+if os.environ.get("STREAMLIT_SERVER_HEADLESS"):
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            timeout=120,
+            capture_output=True,
+            check=False,
+        )
+    except Exception as e:
+        print(f"Warning: No se pudo instalar Playwright: {e}")
+
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
