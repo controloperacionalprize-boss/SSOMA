@@ -363,73 +363,63 @@ CSS_PREVIEW = """
 # ── HTML para la nueva pestaña (PDF idéntico a vista previa) ──────────────────
 # Mismo HTML, mismo CSS, solo cambia @page para A4 y font-size a 7px
 CSS_PDF_TAB = """
-  @page { size: A4 portrait; margin: 8mm 5mm 14mm 5mm; }
-  body  { margin:0; padding:0; font-family:Arial,sans-serif; background:white;
+  body  { margin:0; padding:4px; font-family:Arial,sans-serif; background:#F8FAFC;
           -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  .page-wrap { background:white; padding:0; margin-bottom:0;
-               page-break-after:always; }
-  .page-wrap:last-child { page-break-after:avoid; }
-  .ssf {
-    width:100%; border-collapse:collapse; font-size:7px;
-    color:#111; table-layout:fixed;
-  }
-  /* Anchos fijos para las 10 columnas via colgroup */
-  .c1  { width:28px;  }
-  .c2  { width:14%;   }
-  .c3  { width:8%;    }
-  .c4  { width:7%;    }
-  .c5  { width:14%;   }
-  .c6  { width:12%;   }
-  .c7  { width:12%;   }
-  .c8  { width:11%;   }
-  .c9  { width:10%;   }
-  .c10 { width:70px;  }
-  .ssf td {
-    border:1px solid #777; padding:1px 2px; vertical-align:middle;
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-    line-height:1.4;
-  }
-  .gh {
-    background:#0D2340 !important; color:white !important;
-    font-weight:bold; text-align:center; font-size:7.5px; padding:3px;
-    white-space:normal; word-break:break-word;
-  }
-  .lh {
-    background:#0D2340 !important; color:white !important;
-    font-weight:bold; text-align:center; padding:2px;
-    white-space:normal; word-break:break-word;
-  }
+  .page-wrap { background:white; box-shadow:0 2px 8px rgba(0,0,0,0.12);
+               padding:2px; margin-bottom:16px; }
+  .ssf { width:100%; border-collapse:collapse; font-size:7px;
+         color:#111; table-layout:fixed; }
+  .ssf td { border:1px solid #777; padding:1px 2px; vertical-align:middle;
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+            line-height:1.3; }
+  .gh { background:#0D2340 !important; color:white !important; font-weight:bold;
+        text-align:center; font-size:7.5px; padding:3px;
+        white-space:normal; word-break:break-word; }
+  .lh { background:#0D2340 !important; color:white !important; font-weight:bold;
+        text-align:center; padding:2px; white-space:normal; word-break:break-word; }
   .lb { background:#D6E0F0 !important; font-weight:bold; white-space:normal; }
   .nb { border:none !important; }
-  img { max-width:100% !important; max-height:34px !important; }
+  img { max-width:100% !important; }
 """
 
 COLGROUP = (
     '<colgroup>'
-    '<col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5">'
-    '<col class="c6"><col class="c7"><col class="c8"><col class="c9"><col class="c10">'
+    '<col style="width:28px"><col style="width:14%"><col style="width:8%">'
+    '<col style="width:7%"><col style="width:14%"><col style="width:12%">'
+    '<col style="width:12%"><col style="width:11%"><col style="width:10%">'
+    '<col style="width:70px">'
     '</colgroup>'
 )
 
 
 def build_html_pdf_tab() -> str:
-    """HTML completo para abrir en nueva pestaña e imprimir.
-    Inyecta colgroup en cada tabla .ssf para fijar anchos de columna."""
+    """HTML completo con html2pdf.js para descargar PDF identico a vista previa."""
     pages_html = build_pages_html()
-    # Insertar colgroup justo después de cada <table class="ssf">
     pages_html = pages_html.replace(
         '<table class="ssf">',
         f'<table class="ssf">{COLGROUP}'
     )
+    nombre_archivo = f"registro_{id_sel}.pdf"
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <title>Registro {id_sel}</title>
 <style>{CSS_PDF_TAB}</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head><body>
+<div id="contenido">
 {pages_html}
+</div>
 <script>
   window.onload = function() {{
-    setTimeout(function() {{ window.print(); }}, 700);
+    var opt = {{
+      margin:       [8, 5, 14, 5],
+      filename:     '{nombre_archivo}',
+      image:        {{ type: 'jpeg', quality: 0.98 }},
+      html2canvas:  {{ scale: 2, useCORS: true, letterRendering: true }},
+      jsPDF:        {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
+      pagebreak:    {{ mode: ['avoid-all', 'css', 'legacy'] }}
+    }};
+    html2pdf().set(opt).from(document.getElementById('contenido')).save();
   }};
 </script>
 </body></html>
@@ -464,14 +454,12 @@ with col_b1:
 
 with col_b2:
     if st.session_state.get("pdf_listo"):
-        # Codificar el HTML completo en base64 y abrirlo en nueva pestaña
-        html_pdf   = build_html_pdf_tab()
-        b64_pdf    = base64.b64encode(html_pdf.encode("utf-8")).decode()
-        data_url   = f"data:text/html;base64,{b64_pdf}"
-        # Botón que abre nueva pestaña con el HTML listo para imprimir
+        html_pdf = build_html_pdf_tab()
+        b64_pdf  = base64.b64encode(html_pdf.encode("utf-8")).decode()
+        # Abre nueva pestaña con html2pdf.js que descarga el PDF automáticamente
         components.html(f"""
         <script>
-          function abrirPDF() {{
+          function descargarPDF() {{
             var win = window.open('', '_blank');
             var html = atob('{b64_pdf}');
             win.document.open();
@@ -479,18 +467,18 @@ with col_b2:
             win.document.close();
           }}
         </script>
-        <button onclick="abrirPDF()"
+        <button onclick="descargarPDF()"
           style="width:100%;padding:10px;background:#0D2340;color:white;
                  border:none;border-radius:8px;font-size:15px;font-weight:700;
                  cursor:pointer;letter-spacing:.03em;">
-          🖨️ Abrir PDF / Imprimir
+          ⬇ Descargar PDF
         </button>
         """, height=55)
     else:
-        st.button("🖨️ Abrir PDF / Imprimir", disabled=True, use_container_width=True)
+        st.button("⬇ Descargar PDF", disabled=True, use_container_width=True)
 
 if st.session_state.get("pdf_listo"):
-    st.success("✅ Registro generado. Presiona **🖨️ Abrir PDF / Imprimir** → el diálogo se abre automáticamente → elige **Guardar como PDF**.")
+    st.success("✅ Registro generado. Presiona **⬇ Descargar PDF** — el archivo se descargará automáticamente.")
     st.markdown("---")
     st.markdown("### 🔍 Vista Previa")
     altura = 1600 + (len(chunks) - 1) * 1400
